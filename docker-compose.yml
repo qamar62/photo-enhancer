@@ -9,12 +9,7 @@ services:
       - PYTHONUNBUFFERED=1
     networks:
       - passport-photo-network
-    healthcheck:
-      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/\")' || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    userns_mode: "host"
 
   frontend:
     build:
@@ -25,15 +20,10 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     networks:
       - passport-photo-network
-    healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost/ || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    userns_mode: "host"
 
 networks:
   passport-photo-network:
