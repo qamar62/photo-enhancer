@@ -126,4 +126,4 @@ This project is open for improvements. Feel free to enhance features or fix issu
 
 ## 📄 License
 
-Provided as-is for educational and personal use."# photo-enhancer" 
+Provided as-is for educational and personal use. 
