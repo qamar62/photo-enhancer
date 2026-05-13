@@ -7,9 +7,7 @@ services:
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
-    networks:
-      - passport-photo-network
-    userns_mode: "host"
+    network_mode: host
 
   frontend:
     build:
@@ -17,14 +15,6 @@ services:
       dockerfile: Dockerfile
     container_name: passport-photo-frontend
     restart: unless-stopped
-    ports:
-      - "8080:80"
+    network_mode: host
     depends_on:
       - backend
-    networks:
-      - passport-photo-network
-    userns_mode: "host"
-
-networks:
-  passport-photo-network:
-    driver: bridge
