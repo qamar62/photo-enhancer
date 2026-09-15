@@ -27,6 +27,20 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir --force-reinstall --no-deps \
        opencv-python-headless==4.9.0.80
 
+# Give onnxruntime an explicit thread count. Left unset, it sizes its pool from
+# the host's core count and then pins each worker to a core the container's
+# cpuset may not include; the pin fails with EINVAL and ORT logs a red
+# "pthread_setaffinity_np failed ... error code: 22" for every thread on the
+# first matting call. Harmless - it runs unpinned - but it reads like a crash.
+ENV OMP_NUM_THREADS=4
+
+# Bake the 176MB u2net matte model into the image. Without it the first request
+# after every deploy stops to download it from GitHub, and the container needs
+# outbound network at runtime to matte at all - segmentation.py would otherwise
+# fall back to the coarser MediaPipe mask. Kept above the COPY so that editing
+# code does not invalidate the layer and re-download it.
+RUN python -c "from rembg import new_session; new_session('u2net_human_seg')"
+
 COPY app.py .
 COPY icao ./icao
 

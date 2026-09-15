@@ -27,6 +27,22 @@ _rembg_failed = False
 _selfie = None
 
 
+def _matting_threads() -> int:
+    """
+    How many threads the matting model may use.
+
+    sched_getaffinity is the set of cores this process is actually allowed on,
+    which under Docker is the cpuset rather than the host's core count - the
+    exact thing onnxruntime guesses wrong. Capped at 4 because u2net stops
+    scaling well past that and one request should not take the whole box.
+    """
+    try:
+        n = len(os.sched_getaffinity(0))
+    except AttributeError:  # not Linux
+        n = os.cpu_count() or 1
+    return max(1, min(4, n))
+
+
 def _get_rembg():
     global _rembg_session, _rembg_failed
     if _rembg_session is not None or _rembg_failed:
@@ -34,6 +50,17 @@ def _get_rembg():
     with _lock:
         if _rembg_session is None and not _rembg_failed:
             try:
+                # Unless the thread count is given explicitly, onnxruntime picks
+                # one from the host's core count and pins each worker to a
+                # specific core. In a container whose cpuset is narrower than
+                # that, the pinning call fails with EINVAL and ORT logs a red
+                # "pthread_setaffinity_np failed ... error code: 22" per thread.
+                # Inference is unaffected - it carries on unpinned - but the
+                # noise reads like a crash in the logs. rembg passes this
+                # variable straight through to the session options, and ORT
+                # skips the affinity step when the count is explicit.
+                os.environ.setdefault("OMP_NUM_THREADS", str(_matting_threads()))
+
                 from rembg import new_session
 
                 _rembg_session = new_session(REMBG_MODEL)
