@@ -30,6 +30,12 @@ from .spec import PhotoSpec
 EYE_BAND_SAFETY = 0.015
 HEAD_BAND_SAFETY = 0.02
 
+# How far above the skull vertex hair is still counted as part of the head, as a
+# multiple of the chin->vertex height. Ordinary hair, even thick hair, sits well
+# inside 1.3; a bun, a turban or a tall wrap does not, and counting those as head
+# would shrink the face itself out of the allowed band.
+MAX_HAIR_OVER_SKULL = 1.30
+
 
 @dataclass
 class CropPlan:
@@ -103,12 +109,10 @@ def plan_crop(
     """Compute the ideal crop rectangle in source-pixel coordinates."""
     src_w, src_h = source_size or geo.image_size
 
-    head_h = max(geo.head_height, 4.0)
     crown_y = geo.crown_y
     chin_y = float(geo.chin[1])
 
     target = spec.head_target
-    crop_h = head_h / target
     notes: Dict = {}
 
     eye_y = geo.eye_line_y
@@ -123,6 +127,25 @@ def plan_crop(
     # Whatever is highest - the hair when we have a usable matte, otherwise the
     # estimated skull vertex - is what needs headroom above it.
     protect_top = crown_y if hair_top is None else min(hair_top, crown_y)
+
+    # The head is measured to the top of the HAIR, not to the skull vertex under
+    # it. This is the whole ballgame for the 70-80% rule: sizing to the vertex on
+    # a subject with 3cm of hair pushes the real head to ~90% of the frame, which
+    # leaves no shoulders, no margin under the chin, and a photo that a portal's
+    # validator rejects as "too close" even though every number we printed looked
+    # healthy. Measure what an examiner can see.
+    #
+    # The cap stops a bun, turban or piled-up hair from being counted as head and
+    # shrinking the face to nothing; past that point the covering overhangs and is
+    # reported rather than framed around.
+    skull_h = max(float(chin_y - crown_y), 4.0)
+    head_top = protect_top
+    if head_top < chin_y - skull_h * MAX_HAIR_OVER_SKULL:
+        head_top = chin_y - skull_h * MAX_HAIR_OVER_SKULL
+        notes["hair_volume_capped"] = True
+
+    head_h = max(float(chin_y - head_top), 4.0)
+    crop_h = head_h / target
 
     def _place(crop_height: float) -> float:
         """Best top edge for a given crop height, honouring the eye band."""

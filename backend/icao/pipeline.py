@@ -128,10 +128,32 @@ def _landmark_points(geo: FaceGeometry, size: Tuple[int, int]) -> Dict:
     }
 
 
-def _frame_metrics(geo: FaceGeometry, size: Tuple[int, int], plan=None) -> Dict:
+def _frame_metrics(
+    geo: FaceGeometry,
+    size: Tuple[int, int],
+    plan=None,
+    hair_top: Optional[float] = None,
+) -> Dict:
     w, h = size
+
+    # Measured to the top of the hair when the matte gives us one, matching how
+    # geom.plan_crop sizes the frame and how an examiner reads the photo. Without
+    # this the report quotes the skull-vertex height, which on anyone with thick
+    # hair reads a comfortable 73% while the visible head fills 90% of the frame.
+    #
+    # Hair running into the top edge is measured to the edge, not written off as
+    # an unusable matte. Here - unlike in plan_crop, where an edge-touching matte
+    # is genuinely uninformative about where the hair ends - falling back to the
+    # skull vertex would report a comfortable head fraction for the one photo
+    # that is unambiguously too close. Whatever the real top is, it is at or
+    # above zero, so measuring from zero is the smallest honest answer.
+    head_top = geo.crown_y
+    if hair_top is not None:
+        head_top = min(max(hair_top, 0.0), head_top)
+    head_h = max(float(geo.chin[1]) - head_top, 4.0)
+
     d = {
-        "head_fraction": round(geo.head_height / h, 4),
+        "head_fraction": round(head_h / h, 4),
         "eye_fraction": round(geo.eye_line_y / h, 4),
         "centre_offset": round(abs(geo.face_midline_x / w - 0.5), 4),
         "extension": round(plan.extension, 4) if plan else 0.0,
@@ -150,7 +172,8 @@ def analyse(image_bytes: bytes, spec: PhotoSpec) -> Dict:
     bg_stats = seg.background_stats(img, alpha)
     m = quality.measure_all(img, geo, bg_stats)
 
-    crop = _frame_metrics(geo, (img.shape[1], img.shape[0]))
+    hair = seg.hair_top_y(alpha, geo.face_midline_x, geo.face_width * 1.8)
+    crop = _frame_metrics(geo, (img.shape[1], img.shape[0]), hair_top=hair)
     checks = rules.evaluate(m, spec, crop=crop)
     summary = rules.summarise(checks)
 
@@ -176,9 +199,17 @@ def enhance(image_bytes: bytes, spec: PhotoSpec, options: Options) -> Result:
     original = img.copy()
 
     geo = detect(img)
+    # `geo` is rebound as the image is levelled and cropped; this keeps a handle
+    # on the upload's own geometry for the "before" column of the report, which
+    # was otherwise scoring the original's pixels against the output's framing.
+    # FaceGeometry.transformed() returns a new object, so this stays valid.
+    geo_src = geo
     alpha, matte_source = seg.subject_alpha(img, geo.face_bbox(0.1))
     bg_stats_before = seg.background_stats(img, alpha)
     before = quality.measure_all(img, geo, bg_stats_before)
+    # Taken here because `alpha` is about to be rotated and cropped with the
+    # image; this is the last moment it still describes the upload as supplied.
+    hair_src = seg.hair_top_y(alpha, geo.face_midline_x, geo.face_width * 1.8)
 
     applied: List[Dict] = []
     fixed: Dict[str, bool] = {}
@@ -282,14 +313,21 @@ def enhance(image_bytes: bytes, spec: PhotoSpec, options: Options) -> Result:
     bg_after = seg.background_stats(img, alpha_out)
     after = quality.measure_all(img, geo_out, bg_after)
 
-    frame = _frame_metrics(geo_out, (img.shape[1], img.shape[0]), plan)
+    # Re-measured from the finished pixels, hair included, so the report answers
+    # "is this photo compliant?" rather than "did the planner believe it was?".
+    hair_out = seg.hair_top_y(alpha_out, geo_out.face_midline_x, geo_out.face_width * 1.8)
+    frame = _frame_metrics(geo_out, (img.shape[1], img.shape[0]), plan, hair_top=hair_out)
     # `before` is measured on the upload, so it is the only honest answer to
     # "did the original have enough pixels?" - see rules.evaluate().
     checks = rules.evaluate(after, spec, crop=frame, fixes=fixed, source=before)
     summary = rules.summarise(checks)
 
     before_checks = rules.evaluate(
-        before, spec, crop=_frame_metrics(geo, (original.shape[1], original.shape[0]))
+        before,
+        spec,
+        crop=_frame_metrics(
+            geo_src, (original.shape[1], original.shape[0]), hair_top=hair_src
+        ),
     )
     before_summary = rules.summarise(before_checks)
 
