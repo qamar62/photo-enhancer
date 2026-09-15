@@ -1,21 +1,27 @@
 # Python
+#
+# The packaging directories below are anchored with a leading slash on purpose.
+# Unanchored, a rule like "lib/" matches a directory of that name at ANY depth,
+# which silently swallowed frontend/src/lib and shipped a build that could not
+# resolve ./lib/api. These names only ever mean "Python build output" at the
+# repository root.
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+/build/
+/develop-eggs/
+/dist/
+/downloads/
+/eggs/
+/.eggs/
+/lib/
+/lib64/
+/parts/
+/sdist/
+/var/
+/wheels/
 *.egg-info/
 .installed.cfg
 *.egg
