@@ -12,13 +12,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt .
 
-RUN pip install --no-cache-dir -r requirements.txt
+# mediapipe declares a hard dependency on opencv-contrib-python - the GUI build,
+# which links libGL - so pip drags it in and it lands on top of the headless
+# wheel we asked for. Both own the same cv2 package, so whichever was installed
+# last wins the import, and the GUI one dies with
+# "ImportError: libGL.so.1: cannot open shared object file".
+#
+# Removing both GUI variants and putting the headless wheel back is what keeps
+# the X11 libraries out of this image. --no-deps stops the reinstall from
+# dragging numpy along with it. mediapipe only ever calls basic cv2 functions,
+# which the headless wheel provides in full.
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip uninstall -y opencv-contrib-python opencv-python \
+    && pip install --no-cache-dir --force-reinstall --no-deps \
+       opencv-python-headless==4.9.0.80
 
 COPY app.py .
 COPY icao ./icao
 
-# Warm the MediaPipe graphs at build time so the first request does not pay for
-# them. Harmless if it fails - the models load lazily on demand anyway.
+# Fail the build, not the container, if cv2 cannot load its shared libraries.
+# This is the one import that depends on apt packages rather than pip, so it is
+# the one worth proving here instead of discovering in a restart loop.
+RUN python -c "import cv2, mediapipe; print('cv2', cv2.__version__)"
+
+# Warm the MediaPipe graphs so the first request does not pay for them. Harmless
+# if it fails - the models load lazily on demand anyway.
 RUN python -c "import icao" || true
 
 EXPOSE 8000
