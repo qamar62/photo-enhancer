@@ -1,8 +1,23 @@
 fastapi==0.109.0
 uvicorn==0.27.0
 python-multipart==0.0.6
-opencv-python==4.9.0.80
+
+# Headless build: no GUI libraries, which is what lets the image skip libgl1,
+# libsm6, libxext6 and libxrender1. Do not swap this for plain opencv-python
+# without putting those back in the Dockerfile.
+opencv-python-headless==4.9.0.80
 numpy==1.26.3
 Pillow==10.2.0
+
+# Pinned to 0.10.x on purpose. FaceMesh and SelfieSegmentation are reached
+# through the legacy `mediapipe.solutions` API, which 1.x removes; upgrading
+# breaks landmarks.py and segmentation.py outright rather than deprecating.
 mediapipe==0.10.14
+
+# Optional. rembg gives the best matte, but it downloads its model on first use,
+# so it is unavailable in a sealed container. segmentation.py catches that and
+# falls back to MediaPipe SelfieSegmentation, then to a face-shaped ellipse, so
+# the service still works without it - only the edge quality drops.
 rembg==2.0.56
+# rembg's own runtime, pinned here so the image builds the same way every time.
+onnxruntime==1.17.0
